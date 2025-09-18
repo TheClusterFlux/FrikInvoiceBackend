@@ -1,30 +1,82 @@
-# new-project-template
+# FrikInvoice Backend
 
-once read, please replace this readme with one detailing your service, what it does, how to use it, and any other relevant information. 😊
+This is the backend API for the FrikInvoice order management system.
 
-This repository is a template for creating new projects with Kubernetes-based deployments. It includes tools and configurations to streamline the setup process.
+## Features
 
-## Key Features
+- User authentication and authorization
+- Inventory management
+- Order/invoice management
+- Client management
+- PDF generation
+- Audit logging
+- Tax calculation (supports both tax-added and tax-inclusive methods)
 
-- **Deployment YAML Generator**: A Bash script (`init.sh`) to generate Kubernetes deployment, service, and optional ingress configurations.
-- **GitHub Actions Workflow**: Automates the deployment of your service to a Kubernetes cluster.
+## Environment Variables
 
-## How to Use
+The following environment variables are required:
 
-1. **Clone or Use as a Template**:
-   - Clone this repository or use the "Use this template" button on GitHub to create a new repository.
+- `MONGO_PASSWORD`: MongoDB root password (from Kubernetes secret)
+- `JWT_SECRET`: Secret key for JWT token signing
+- `NODE_ENV`: Environment (production/development)
+- `PORT`: Server port (default: 8080)
+- `FRONTEND_URL`: Frontend URL for CORS configuration
+- `TAX_CALCULATION_METHOD`: Tax calculation method ('add' or 'reverse')
 
-2. **Run the Deployment YAML Generator**:
-   - Execute the `init.sh` script to generate Kubernetes YAML files:
-     ```bash
-     ./init.sh
-     ```
+## MongoDB Connection
 
-3. **Add Your Code**:
-   - Add your service code and a `Dockerfile` to the repository.
-   - Ensure the service is exposed on port 8080 or update the generated YAML accordingly.
+The backend connects to MongoDB using TheClusterFlux MongoDB interface:
+- Production: `mongodb://root:<MONGO_PASSWORD>@mongodb.default.svc.cluster.local:27017/frikinvoice`
+- Local Development: `mongodb://root:<MONGO_PASSWORD>@localhost:27016/frikinvoice`
 
-4. **Trigger Deployment**:
-   - Push changes to the `main` branch to deploy your service using the pre-configured GitHub Actions workflow.
+## Deployment
 
-This template simplifies Kubernetes deployments and ensures consistency across projects.
+1. Create the required Kubernetes secrets:
+   ```bash
+   kubectl create secret generic frik-invoice-secret \
+     --from-literal=jwt-secret=your-jwt-secret-here
+   ```
+
+2. Deploy the application:
+   ```bash
+   kubectl apply -f deployment.yaml
+   ```
+
+## API Endpoints
+
+- `GET /api/v1/health` - Health check
+- `POST /api/v1/auth/login` - User login
+- `GET /api/v1/inventory` - Get inventory items
+- `POST /api/v1/orders` - Create new order
+- `GET /api/v1/orders` - Get orders list
+- And more...
+
+## Database Models
+
+- **User**: User accounts and authentication
+- **Inventory**: Product/inventory items
+- **Order**: Orders and invoices
+- **Client**: Customer information
+- **AuditLog**: System audit trail
+- **InvoiceCounter**: Invoice number generation
+
+## Development
+
+To run locally:
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Set environment variables:
+   ```bash
+   export MONGO_PASSWORD=your-mongo-password
+   export JWT_SECRET=your-jwt-secret
+   export IS_LOCAL=true
+   ```
+
+3. Start the server:
+   ```bash
+   npm run dev
+   ```

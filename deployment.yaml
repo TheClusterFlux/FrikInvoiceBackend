@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frik-invoice-bff
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frik-invoice-bff
+  template:
+    metadata:
+      labels:
+        app: frik-invoice-bff
+    spec:
+      containers:
+        - name: frik-invoice-bff
+          image: docker.io/keanuwatts/theclusterflux:FrikInvoiceBackend
+          imagePullPolicy: Always
+          env:
+          - name: NODE_ENV
+            value: "production"
+          - name: PORT
+            value: "8080"
+          - name: MONGO_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mongodb
+                key: mongodb-root-password
+          - name: JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: frik-invoice-secret
+                key: jwt-secret
+          - name: FRONTEND_URL
+            value: "https://frik-invoice.theclusterflux.com"
+          - name: TAX_CALCULATION_METHOD
+            value: "reverse"
+      imagePullSecrets:
+        - name: dockerhub-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frik-invoice-bff
+spec:
+  selector:
+    app: frik-invoice-bff
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frik-invoice-bff
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - frik-invoice-bff.theclusterflux.com
+    secretName: theclusterflux
+  rules:
+  - host: frik-invoice-bff.theclusterflux.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frik-invoice-bff
+            port:
+              number: 8080
