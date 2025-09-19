@@ -76,23 +76,35 @@ function getMongoConnectionString() {
   const mongoPassword = process.env.MONGO_PASSWORD;
   const isLocal = process.env.IS_LOCAL === 'true';
   
+  console.log('MongoDB connection debug:');
+  console.log('- MONGO_PASSWORD:', mongoPassword ? '***SET***' : 'NOT SET');
+  console.log('- IS_LOCAL:', isLocal);
+  
   if (!mongoPassword) {
     throw new Error('MONGO_PASSWORD environment variable is required');
   }
   
   if (isLocal) {
-    return `mongodb://root:${mongoPassword}@localhost:27016/frikinvoice`;
+    const uri = `mongodb://root:${mongoPassword}@localhost:27016`;
+    console.log('- Using local connection (no database specified)');
+    return uri;
   } else {
-    return `mongodb://root:${mongoPassword}@mongodb.default.svc.cluster.local:27017/frikinvoice`;
+    const uri = `mongodb://root:${mongoPassword}@mongodb.default.svc.cluster.local:27017`;
+    console.log('- Using production connection (no database specified)');
+    return uri;
   }
 }
 
 // Database connection
 const mongoUri = process.env.MONGODB_URI || getMongoConnectionString();
 
+console.log('Attempting MongoDB connection...');
+console.log('Connection URI:', mongoUri.replace(/\/\/.*@/, '//***:***@')); // Hide password in logs
+
 mongoose.connect(mongoUri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
+  dbName: 'frikinvoice'
 })
 .then(() => {
   console.log('Connected to MongoDB');
