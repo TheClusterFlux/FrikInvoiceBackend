@@ -27,6 +27,11 @@ const inventorySchema = new mongoose.Schema({
     trim: true,
     maxlength: 50
   },
+  stockQuantity: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   isActive: {
     type: Boolean,
     default: true
