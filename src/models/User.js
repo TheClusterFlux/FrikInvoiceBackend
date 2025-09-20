@@ -10,6 +10,14 @@ const userSchema = new mongoose.Schema({
     minlength: 3,
     maxlength: 50
   },
+  email: {
+    type: String,
+    required: false,
+    unique: true,
+    sparse: true,
+    trim: true,
+    lowercase: true
+  },
   password: {
     type: String,
     required: true,
@@ -17,8 +25,8 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['clerk', 'admin'],
-    default: 'clerk'
+    enum: ['admin', 'user'],
+    default: 'user'
   },
   isActive: {
     type: Boolean,
@@ -67,3 +75,4 @@ userSchema.methods.toJSON = function() {
 };
 
 module.exports = mongoose.model('User', userSchema);
+

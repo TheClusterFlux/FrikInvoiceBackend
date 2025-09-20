@@ -96,3 +96,4 @@ clientSchema.methods.softDelete = function(userId) {
 };
 
 module.exports = mongoose.model('Client', clientSchema);
+

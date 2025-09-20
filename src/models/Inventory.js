@@ -69,3 +69,4 @@ inventorySchema.methods.restore = function(userId) {
 };
 
 module.exports = mongoose.model('Inventory', inventorySchema);
+

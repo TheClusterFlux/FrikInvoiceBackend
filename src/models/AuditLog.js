@@ -74,3 +74,4 @@ auditLogSchema.statics.logChange = async function({
 };
 
 module.exports = mongoose.model('AuditLog', auditLogSchema);
+

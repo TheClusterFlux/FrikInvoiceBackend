@@ -24,19 +24,6 @@ const PORT = process.env.PORT || 8080;
 app.use(helmet());
 app.use(compression());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: {
-    success: false,
-    error: {
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP'
-    }
-  }
-});
-app.use(limiter);
 
 // CORS configuration
 const corsOptions = {

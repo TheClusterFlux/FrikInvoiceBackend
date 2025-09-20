@@ -3,11 +3,12 @@ const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
+const { loginLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
 // Login endpoint
-router.post('/login', [
+router.post('/login', loginLimiter, [
   body('username').trim().isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
 ], async (req, res, next) => {
@@ -142,3 +143,4 @@ router.get('/me', authenticateToken, async (req, res, next) => {
 });
 
 module.exports = router;
+

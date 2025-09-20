@@ -86,3 +86,4 @@ module.exports = {
   calculateTaxForItems,
   getTaxCalculationMethod
 };
+

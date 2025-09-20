@@ -59,3 +59,4 @@ const auditLogger = (req, res, next) => {
 };
 
 module.exports = { auditLogger };
+

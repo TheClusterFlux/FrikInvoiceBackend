@@ -1,0 +1,66 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: frikinvoice-mongodb-local
+    restart: unless-stopped
+    ports:
+      - "27016:27017"  # Map to 27016 to match your local development pattern
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: frikinvoice123
+    volumes:
+      - mongodb_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - frikinvoice-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: frikinvoice-backend-local
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      MONGO_PASSWORD: frikinvoice123
+      IS_LOCAL: "true"
+      MONGODB_URI: mongodb://root:frikinvoice123@mongodb:27017/frikinvoice?authSource=admin
+    depends_on:
+      - mongodb
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - frikinvoice-network
+    command: npm run dev
+
+  frontend:
+    build:
+      context: ../FrikInvoice
+      dockerfile: Dockerfile
+    container_name: frikinvoice-frontend-local
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8080/api/v1
+      CHOKIDAR_USEPOLLING: true
+    depends_on:
+      - backend
+    volumes:
+      - ../FrikInvoice:/app
+      - /app/node_modules
+    networks:
+      - frikinvoice-network
+    stdin_open: true
+    tty: true
+
+volumes:
+  mongodb_data:
+
+networks:
+  frikinvoice-network:
+    driver: bridge

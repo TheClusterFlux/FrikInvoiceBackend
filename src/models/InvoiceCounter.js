@@ -40,3 +40,4 @@ invoiceCounterSchema.statics.generateInvoiceNumber = async function(prefix = 'IN
 };
 
 module.exports = mongoose.model('InvoiceCounter', invoiceCounterSchema);
+
