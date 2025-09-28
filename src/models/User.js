@@ -44,6 +44,18 @@ const userSchema = new mongoose.Schema({
   mustResetPassword: {
     type: Boolean,
     default: false
+  },
+  invoiceCode: {
+    type: String,
+    default: '01',
+    maxlength: 10,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return /^[A-Z0-9]{1,10}$/.test(v);
+      },
+      message: 'Invoice code must be alphanumeric and uppercase, max 10 characters'
+    }
   }
 }, {
   timestamps: true

@@ -24,14 +24,15 @@ const upload = multer({
   }
 });
 
-// Get all active inventory items
+// Get all inventory items
 router.get('/', [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
   query('group').optional().trim().isLength({ max: 100 }),
   query('search').optional().trim().isLength({ max: 200 }),
   query('sortField').optional().trim().isLength({ max: 50 }),
-  query('sortDirection').optional().isIn(['asc', 'desc']).withMessage('Sort direction must be asc or desc')
+  query('sortDirection').optional().isIn(['asc', 'desc']).withMessage('Sort direction must be asc or desc'),
+  query('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -52,6 +53,10 @@ router.get('/', [
 
     // Build filter
     const filter = { isDeleted: false };
+    
+    if (req.query.isActive !== undefined) {
+      filter.isActive = req.query.isActive === 'true';
+    }
     
     if (req.query.group) {
       filter.group = new RegExp(req.query.group, 'i');
@@ -153,7 +158,8 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
   body('code').trim().isLength({ min: 1, max: 50 }).withMessage('Code is required and must be less than 50 characters'),
   body('description').trim().isLength({ min: 1, max: 200 }).withMessage('Description is required and must be less than 200 characters'),
   body('group').trim().isLength({ min: 1, max: 100 }).withMessage('Group is required and must be less than 100 characters'),
-  body('unit').trim().isLength({ min: 1, max: 50 }).withMessage('Unit is required and must be less than 50 characters')
+  body('unit').trim().isLength({ min: 1, max: 50 }).withMessage('Unit is required and must be less than 50 characters'),
+  body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a non-negative number')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -198,6 +204,7 @@ router.put('/:id', authenticateToken, requireRole(['clerk', 'admin']), [
   body('description').optional().trim().isLength({ min: 1, max: 200 }).withMessage('Description must be less than 200 characters'),
   body('group').optional().trim().isLength({ min: 1, max: 100 }).withMessage('Group must be less than 100 characters'),
   body('unit').optional().trim().isLength({ min: 1, max: 50 }).withMessage('Unit must be less than 50 characters'),
+  body('basePrice').optional().isFloat({ min: 0 }).withMessage('Base price must be a non-negative number'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res, next) => {
   try {

@@ -6,6 +6,11 @@ const invoiceCounterSchema = new mongoose.Schema({
     default: 'INV',
     maxlength: 10
   },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false // For backward compatibility
+  },
   counter: {
     type: Number,
     default: 0
@@ -17,10 +22,12 @@ const invoiceCounterSchema = new mongoose.Schema({
 });
 
 // Static method to generate next invoice number
-invoiceCounterSchema.statics.generateInvoiceNumber = async function(prefix = 'INV') {
+invoiceCounterSchema.statics.generateInvoiceNumber = async function(prefix = 'INV', userId = null) {
   try {
+    const query = userId ? { prefix, userId } : { prefix, userId: { $exists: false } };
+    
     const counter = await this.findOneAndUpdate(
-      { prefix },
+      query,
       { 
         $inc: { counter: 1 },
         $set: { lastGenerated: new Date() }
@@ -31,7 +38,7 @@ invoiceCounterSchema.statics.generateInvoiceNumber = async function(prefix = 'IN
       }
     );
     
-    const paddedNumber = counter.counter.toString().padStart(6, '0');
+    const paddedNumber = counter.counter.toString().padStart(5, '0');
     return `${prefix}-${paddedNumber}`;
   } catch (error) {
     console.error('Failed to generate invoice number:', error);

@@ -4,6 +4,7 @@ const Order = require('../models/Order');
 const Inventory = require('../models/Inventory');
 const InvoiceCounter = require('../models/InvoiceCounter');
 const AuditLog = require('../models/AuditLog');
+const User = require('../models/User');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { generatePDF } = require('../services/pdfService');
 const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
@@ -193,8 +194,10 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
     
     const { subtotal, taxAmount, total } = taxCalculation;
 
-    // Generate invoice number
-    const invoiceNumber = await InvoiceCounter.generateInvoiceNumber();
+    // Get user's invoice code and generate invoice number
+    const user = await User.findById(req.user.userId);
+    const userInvoiceCode = user?.invoiceCode || '01';
+    const invoiceNumber = await InvoiceCounter.generateInvoiceNumber(userInvoiceCode, req.user.userId);
 
     // Create order
     const orderData = {

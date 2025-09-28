@@ -32,6 +32,17 @@ const inventorySchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  basePrice: {
+    type: Number,
+    default: 0,
+    min: 0,
+    validate: {
+      validator: function(v) {
+        return v >= 0;
+      },
+      message: 'Base price must be non-negative'
+    }
+  },
   isActive: {
     type: Boolean,
     default: true

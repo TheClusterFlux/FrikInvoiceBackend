@@ -179,7 +179,8 @@ router.put('/:id', authenticateToken, requireRole(['admin']), [
   param('id').isMongoId().withMessage('Invalid user ID'),
   body('username').optional().trim().isLength({ min: 3, max: 50 }).withMessage('Username must be between 3 and 50 characters'),
   body('role').optional().isIn(['clerk', 'admin']).withMessage('Role must be clerk or admin'),
-  body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
+  body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
+  body('invoiceCode').optional().trim().matches(/^[A-Z0-9]{1,10}$/).withMessage('Invoice code must be alphanumeric and uppercase, max 10 characters')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -252,6 +253,7 @@ router.put('/:id', authenticateToken, requireRole(['admin']), [
         role: user.role,
         isActive: user.isActive,
         mustResetPassword: user.mustResetPassword,
+        invoiceCode: user.invoiceCode,
         updatedAt: user.updatedAt
       }
     });
@@ -462,6 +464,72 @@ router.put('/profile/password', authenticateToken, [
     res.json({
       success: true,
       message: 'Password updated successfully'
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update own invoice code (any authenticated user)
+router.put('/me/invoice-code', authenticateToken, [
+  body('invoiceCode').trim().matches(/^[A-Z0-9]{1,10}$/).withMessage('Invoice code must be alphanumeric and uppercase, max 10 characters')
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'User not found'
+        }
+      });
+    }
+
+    // Check if invoice code is already in use by another user
+    const existingUser = await User.findOne({ 
+      invoiceCode: req.body.invoiceCode,
+      _id: { $ne: req.user.userId }
+    });
+    
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVOICE_CODE_EXISTS',
+          message: 'Invoice code is already in use by another user'
+        }
+      });
+    }
+
+    // Track changes for audit
+    req.addAuditChange('invoiceCode', user.invoiceCode, req.body.invoiceCode);
+    req.setAuditContext('User', user._id, 'update');
+
+    user.invoiceCode = req.body.invoiceCode;
+    await user.save();
+
+    res.json({
+      success: true,
+      data: {
+        _id: user._id,
+        username: user.username,
+        invoiceCode: user.invoiceCode,
+        updatedAt: user.updatedAt
+      }
     });
 
   } catch (error) {
