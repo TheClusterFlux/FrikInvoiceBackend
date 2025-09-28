@@ -12,6 +12,7 @@ const inventoryRoutes = require('./routes/inventory');
 const orderRoutes = require('./routes/orders');
 const clientRoutes = require('./routes/clients');
 const userRoutes = require('./routes/users');
+const draftRoutes = require('./routes/drafts');
 const systemRoutes = require('./routes/system');
 
 const { errorHandler } = require('./middleware/errorHandler');
@@ -53,6 +54,7 @@ app.use('/api/v1/inventory', inventoryRoutes);
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/clients', clientRoutes);
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/drafts', draftRoutes);
 app.use('/api/v1', systemRoutes);
 
 // Error handling middleware

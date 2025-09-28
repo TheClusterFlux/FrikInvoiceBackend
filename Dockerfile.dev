@@ -1,0 +1,44 @@
+# Multi-stage build for better caching
+FROM node:18-alpine AS base
+
+# Install system dependencies (rarely changes)
+RUN apk add --no-cache chromium
+
+WORKDIR /app
+
+# Dependencies stage
+FROM base AS dependencies
+
+# Copy only package files first (for better caching)
+COPY package*.json ./
+
+# Install production dependencies in a separate layer
+RUN PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm ci --only=production && \
+    npm cache clean --force
+
+# Development stage
+FROM base AS development
+
+WORKDIR /app
+
+# Copy production dependencies from previous stage
+COPY --from=dependencies /app/node_modules ./node_modules
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install
+
+# Create user for security (do this before copying source)
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Copy source code (this layer changes most frequently)
+COPY --chown=nodejs:nodejs . .
+
+USER nodejs
+
+EXPOSE 5000
+
+CMD ["npm", "run", "dev"]

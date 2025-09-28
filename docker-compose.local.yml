@@ -1,3 +1,9 @@
+version: '3.8'
+
+# Enable BuildKit for better caching
+x-build-args: &build-args
+  BUILDKIT_INLINE_CACHE: 1
+
 services:
   mongodb:
     image: mongo:7.0
@@ -17,7 +23,12 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
+      cache_from:
+        - frikinvoicebackend-backend:latest
+      args:
+        <<: *build-args
+      target: development
     container_name: frikinvoice-backend-local
     restart: unless-stopped
     ports:
@@ -40,7 +51,12 @@ services:
   frontend:
     build:
       context: ../FrikInvoice
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
+      cache_from:
+        - frikinvoicebackend-frontend:latest
+      args:
+        <<: *build-args
+      target: development
     container_name: frikinvoice-frontend-local
     restart: unless-stopped
     ports:
