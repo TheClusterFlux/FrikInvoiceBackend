@@ -1,5 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const DraftOrder = require('../models/DraftOrder');
 const { authenticateToken } = require('../middleware/auth');
 const { auditLogger } = require('../middleware/auditLogger');
@@ -48,26 +49,89 @@ router.post('/', [
       });
     }
 
-    const draftData = {
-      userId: req.user.userId,
-      customerInfo: req.body.customerInfo || {},
-      selectedClientId: req.body.selectedClientId || null,
-      items: req.body.items || [],
-      taxRate: req.body.taxRate || 0,
-      notes: req.body.notes || '',
-      lastSaved: new Date()
-    };
+    // Log incoming data for debugging
+    console.log('Draft save request:', {
+      itemsCount: req.body.items?.length || 0,
+      items: req.body.items?.map(item => ({
+        hasInventoryId: !!item.inventoryId,
+        inventoryId: item.inventoryId,
+        inventoryIdType: typeof item.inventoryId,
+        inventoryIdLength: item.inventoryId?.length
+      }))
+    });
 
-    // Upsert: update if exists, create if not
-    const draft = await DraftOrder.findOneAndUpdate(
-      { userId: req.user.userId },
-      draftData,
-      { 
-        upsert: true, 
-        new: true,
-        runValidators: true
+    // Filter out items with empty or invalid inventoryId
+    // Also ensure we only keep items that have all required fields
+    const validItems = (req.body.items || []).filter(item => {
+      if (!item) return false;
+      const id = item.inventoryId;
+      // Check if inventoryId is a valid MongoDB ObjectId (24 hex characters)
+      if (!id || typeof id !== 'string') return false;
+      const trimmedId = id.trim();
+      if (trimmedId === '') return false;
+      return mongoose.Types.ObjectId.isValid(trimmedId);
+    }).map(item => {
+      // Clean the item - only include fields that should be in the draft
+      const cleanItem = {
+        inventoryId: item.inventoryId.trim(), // Ensure it's a clean string
+        quantity: item.quantity || 1,
+        unit: item.unit || '',
+        unitPrice: item.unitPrice || 0,
+        basePrice: item.basePrice || 0,
+        markup: item.markup || 30
+      };
+      if (item.calculationBreakdown) {
+        cleanItem.calculationBreakdown = item.calculationBreakdown;
       }
-    );
+      return cleanItem;
+    });
+
+    console.log('Filtered valid items:', {
+      originalCount: req.body.items?.length || 0,
+      validCount: validItems.length,
+      validItems: validItems.map(item => ({ inventoryId: item.inventoryId, quantity: item.quantity }))
+    });
+
+    // Validate and convert selectedClientId
+    let selectedClientId = null;
+    if (req.body.selectedClientId) {
+      if (mongoose.Types.ObjectId.isValid(req.body.selectedClientId)) {
+        selectedClientId = req.body.selectedClientId; // Let Mongoose handle the conversion
+      } else {
+        console.warn('Invalid selectedClientId format:', req.body.selectedClientId);
+      }
+    }
+
+    // Delete existing draft first to avoid any issues with old bad data
+    await DraftOrder.deleteOne({ userId: req.user.userId });
+    
+    // Create new draft with clean data
+    let draft;
+    try {
+      draft = new DraftOrder({
+        userId: req.user.userId,
+        customerInfo: req.body.customerInfo || {},
+        selectedClientId: selectedClientId,
+        items: validItems,
+        taxRate: req.body.taxRate || 0,
+        notes: req.body.notes || '',
+        lastSaved: new Date()
+      });
+      
+      await draft.save();
+    } catch (saveError) {
+      console.error('Draft save error:', {
+        name: saveError.name,
+        message: saveError.message,
+        path: saveError.path,
+        value: saveError.value,
+        kind: saveError.kind,
+        validItems: JSON.stringify(validItems, null, 2),
+        validItemsCount: validItems.length,
+        selectedClientId: selectedClientId
+      });
+      throw saveError;
+    }
 
     req.setAuditContext('DraftOrder', draft._id, 'save');
 

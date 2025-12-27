@@ -32,7 +32,7 @@ spec:
                 name: frik-invoice-secret
                 key: jwt-secret
           - name: FRONTEND_URL
-            value: "https://frik-invoice.theclusterflux.com"
+            value: "https://invoice-manager.theclusterflux.com"
           - name: TAX_CALCULATION_METHOD
             value: "reverse"
       imagePullSecrets:
@@ -61,10 +61,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - frik-invoice-bff.theclusterflux.com
+    - invoice-manager-api.theclusterflux.com
     secretName: theclusterflux
   rules:
-  - host: frik-invoice-bff.theclusterflux.com
+  - host: invoice-manager-api.theclusterflux.com
     http:
       paths:
       - path: /

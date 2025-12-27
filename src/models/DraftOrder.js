@@ -27,7 +27,7 @@ const draftOrderSchema = new mongoose.Schema({
     inventoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Inventory',
-      default: ''
+      required: false
     },
     quantity: {
       type: Number,

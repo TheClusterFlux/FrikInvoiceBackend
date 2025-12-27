@@ -39,11 +39,15 @@ services:
       MONGO_PASSWORD: frikinvoice123
       IS_LOCAL: "true"
       MONGODB_URI: mongodb://root:frikinvoice123@mongodb:27017/frikinvoice?authSource=admin
+      # JWT Configuration - required for security fixes
+      JWT_SECRET: your-super-secret-jwt-key-for-local-development-only
+      # Email API - use host.docker.internal to access port-forward on host machine
+      EMAIL_API_URL: http://host.docker.internal:8081
+      EMAIL_FROM: noreply@theclusterflux.com
+      EMAIL_REPLY_TO: support@theclusterflux.com
+      FRONTEND_URL: http://localhost:3000
     depends_on:
       - mongodb
-    volumes:
-      - .:/app
-      - /app/node_modules
     networks:
       - frikinvoice-network
     command: npm run dev
@@ -63,12 +67,8 @@ services:
       - "3000:3000"
     environment:
       REACT_APP_API_URL: http://localhost:8080/api/v1
-      CHOKIDAR_USEPOLLING: true
     depends_on:
       - backend
-    volumes:
-      - ../FrikInvoice:/app
-      - /app/node_modules
     networks:
       - frikinvoice-network
     stdin_open: true

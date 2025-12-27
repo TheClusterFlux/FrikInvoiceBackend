@@ -21,16 +21,59 @@ const { auditLogger } = require('./middleware/auditLogger');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Validate required environment variables at startup
+if (!process.env.JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET environment variable is required');
+  process.exit(1);
+}
+
+if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_URL) {
+  console.error('ERROR: FRONTEND_URL environment variable is required in production');
+  process.exit(1);
+}
+
 // Security middleware
 app.use(helmet());
 app.use(compression());
 
+// HTTPS enforcement in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    // Check if request is already secure or forwarded as secure
+    const isSecure = req.secure || 
+                     req.headers['x-forwarded-proto'] === 'https' ||
+                     req.headers['x-forwarded-ssl'] === 'on';
+    
+    if (!isSecure) {
+      // Redirect to HTTPS
+      const httpsUrl = `https://${req.headers.host}${req.url}`;
+      return res.redirect(301, httpsUrl);
+    }
+    next();
+  });
+}
+
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL 
-    : true, // Allow all origins in development
+  origin: (origin, callback) => {
+    if (process.env.NODE_ENV === 'production') {
+      // In production, validate FRONTEND_URL is set
+      if (!process.env.FRONTEND_URL) {
+        console.error('FRONTEND_URL environment variable is required in production');
+        return callback(new Error('CORS configuration error: FRONTEND_URL not set'));
+      }
+      // Allow only the configured frontend URL
+      if (origin === process.env.FRONTEND_URL) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    } else {
+      // In development, allow all origins
+      callback(null, true);
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200
 };

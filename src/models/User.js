@@ -61,6 +61,13 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Indexes for efficient queries
+userSchema.index({ username: 1 });
+userSchema.index({ email: 1 });
+userSchema.index({ isActive: 1 });
+userSchema.index({ role: 1 });
+userSchema.index({ username: 'text' }); // Text index for search
+
 // Hash password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();

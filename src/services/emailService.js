@@ -1,0 +1,178 @@
+const axios = require('axios');
+
+const EMAIL_API_URL = process.env.EMAIL_API_URL || 'http://email-api-service:8080';
+
+/**
+ * Escape HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(text) {
+  if (text === null || text === undefined) {
+    return '';
+  }
+  const str = String(text);
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return str.replace(/[&<>"']/g, m => map[m]);
+}
+
+/**
+ * Send email via the mail server API
+ */
+async function sendEmail({ to, subject, body, html = false, fromEmail = null, replyTo = null }) {
+  try {
+    console.log('Sending email via email service:', {
+      to,
+      subject,
+      emailApiUrl: EMAIL_API_URL,
+      hasBody: !!body,
+      html
+    });
+
+    const response = await axios.post(`${EMAIL_API_URL}/send`, {
+      to,
+      subject,
+      body,
+      html,
+      from_email: fromEmail,
+      reply_to: replyTo
+    }, {
+      timeout: 10000 // 10 second timeout
+    });
+
+    console.log('Email sent successfully:', {
+      to,
+      subject,
+      messageId: response.data?.message,
+      timestamp: response.data?.timestamp
+    });
+
+    return {
+      success: true,
+      messageId: response.data.message,
+      timestamp: response.data.timestamp
+    };
+  } catch (error) {
+    console.error('Email sending error:', {
+      to,
+      subject,
+      emailApiUrl: EMAIL_API_URL,
+      error: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      code: error.code
+    });
+    throw new Error(`Failed to send email: ${error.response?.data?.detail || error.message}`);
+  }
+}
+
+/**
+ * Send invoice signing email to customer
+ */
+async function sendSigningEmail({ to, orderNumber, signingUrl, customerName, invoiceTotal }) {
+  const subject = `Please Sign Invoice ${orderNumber}`;
+  
+  const htmlBody = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #007bff, #0056b3); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+        .button { display: inline-block; background: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+        .button:hover { background: #0056b3; }
+        .info-box { background: white; padding: 15px; border-left: 4px solid #007bff; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Invoice Signature Required</h1>
+        </div>
+        <div class="content">
+          <p>Dear ${escapeHtml(customerName || 'Valued Customer')},</p>
+          
+          <p>You have been sent invoice <strong>${escapeHtml(orderNumber)}</strong> for your review and signature.</p>
+          
+          <div class="info-box">
+            <strong>Invoice Number:</strong> ${escapeHtml(orderNumber)}<br>
+            <strong>Total Amount:</strong> $${escapeHtml(invoiceTotal.toFixed(2))}
+          </div>
+          
+          <p>Please click the button below to review and sign the invoice:</p>
+          
+          <div style="text-align: center;">
+            <a href="${escapeHtml(signingUrl)}" class="button">Review & Sign Invoice</a>
+          </div>
+          
+          <p style="font-size: 12px; color: #666; margin-top: 30px;">
+            <strong>Important:</strong> This link is unique to you and will expire in 30 days. 
+            If you did not request this invoice, please ignore this email.
+          </p>
+          
+          <p style="font-size: 12px; color: #666;">
+            If the button doesn't work, copy and paste this link into your browser:<br>
+            <a href="${escapeHtml(signingUrl)}" style="color: #007bff; word-break: break-all;">${escapeHtml(signingUrl)}</a>
+          </p>
+        </div>
+        <div class="footer">
+          <p>This is an automated message from TheClusterFlux Invoice System.</p>
+          <p>Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  // For plain text, we still escape to be safe (though less critical)
+  const plainBody = `
+Invoice Signature Required
+
+Dear ${customerName || 'Valued Customer'},
+
+You have been sent invoice ${orderNumber} for your review and signature.
+
+Invoice Number: ${orderNumber}
+Total Amount: $${invoiceTotal.toFixed(2)}
+
+Please click the link below to review and sign the invoice:
+${signingUrl}
+
+Important: This link is unique to you and will expire in 30 days. 
+If you did not request this invoice, please ignore this email.
+
+This is an automated message from TheClusterFlux Invoice System.
+Please do not reply to this email.
+  `;
+
+  console.log('Sending signing email:', {
+    to,
+    orderNumber,
+    customerName,
+    invoiceTotal,
+    signingUrl: signingUrl.substring(0, 50) + '...' // Log partial URL for security
+  });
+
+  return await sendEmail({
+    to,
+    subject,
+    body: htmlBody,
+    html: true,
+    fromEmail: process.env.EMAIL_FROM || 'noreply@theclusterflux.com',
+    replyTo: process.env.EMAIL_REPLY_TO || null
+  });
+}
+
+module.exports = {
+  sendEmail,
+  sendSigningEmail
+};
+

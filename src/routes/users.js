@@ -111,7 +111,9 @@ router.get('/:id', authenticateToken, requireRole(['admin']), [
 // Create new user (admin only)
 router.post('/', authenticateToken, requireRole(['admin']), [
   body('username').trim().isLength({ min: 3, max: 50 }).withMessage('Username must be between 3 and 50 characters'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('password')
+    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
   body('role').optional().isIn(['clerk', 'admin']).withMessage('Role must be clerk or admin'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
 ], async (req, res, next) => {
@@ -266,7 +268,10 @@ router.put('/:id', authenticateToken, requireRole(['admin']), [
 // Force password reset (admin only)
 router.post('/:id/reset-password', authenticateToken, requireRole(['admin']), [
   param('id').isMongoId().withMessage('Invalid user ID'),
-  body('newPassword').optional().isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
+  body('newPassword')
+    .optional()
+    .isLength({ min: 8 }).withMessage('New password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -410,7 +415,9 @@ router.get('/profile/me', authenticateToken, async (req, res, next) => {
 // Update current user password
 router.put('/profile/password', authenticateToken, [
   body('currentPassword').notEmpty().withMessage('Current password is required'),
-  body('newPassword').isLength({ min: 6 }).withMessage('New password must be at least 6 characters')
+  body('newPassword')
+    .isLength({ min: 8 }).withMessage('New password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/).withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);

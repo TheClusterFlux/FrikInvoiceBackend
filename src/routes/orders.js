@@ -1,13 +1,23 @@
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Inventory = require('../models/Inventory');
 const InvoiceCounter = require('../models/InvoiceCounter');
 const AuditLog = require('../models/AuditLog');
 const User = require('../models/User');
+const SigningToken = require('../models/SigningToken');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { 
+  orderCreationLimiter, 
+  pdfGenerationLimiter, 
+  emailSendingLimiter, 
+  signingLimiter 
+} = require('../middleware/rateLimiter');
 const { generatePDF } = require('../services/pdfService');
 const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
+const { sendSigningEmail } = require('../services/emailService');
+const crypto = require('crypto');
 
 const router = express.Router();
 
@@ -45,12 +55,26 @@ router.get('/', authenticateToken, [
       filter.status = req.query.status;
     }
     
+    // Use text search if available, otherwise fall back to regex for backward compatibility
+    let sortOptions = { createdAt: -1 };
     if (req.query.search) {
-      filter.$or = [
-        { invoiceNumber: new RegExp(req.query.search, 'i') },
-        { 'customerInfo.name': new RegExp(req.query.search, 'i') },
-        { 'customerInfo.email': new RegExp(req.query.search, 'i') }
-      ];
+      const searchTerm = req.query.search.trim();
+      if (searchTerm) {
+        // Try text search first (more efficient with indexes)
+        // If text index exists, use it; otherwise fall back to regex
+        try {
+          filter.$text = { $search: searchTerm };
+          sortOptions = { score: { $meta: 'textScore' }, createdAt: -1 };
+        } catch (error) {
+          // Fall back to regex if text index is not available
+          filter.$or = [
+            { invoiceNumber: new RegExp(searchTerm, 'i') },
+            { 'customerInfo.name': new RegExp(searchTerm, 'i') },
+            { 'customerInfo.email': new RegExp(searchTerm, 'i') }
+          ];
+          delete filter.$text;
+        }
+      }
     }
 
     const [orders, total] = await Promise.all([
@@ -58,7 +82,7 @@ router.get('/', authenticateToken, [
         .populate('createdBy', 'username')
         .populate('updatedBy', 'username')
         .populate('items.inventoryId', 'name sku')
-        .sort({ createdAt: -1 })
+        .sort(sortOptions)
         .skip(skip)
         .limit(limit),
       Order.countDocuments(filter)
@@ -126,7 +150,7 @@ router.get('/:id', authenticateToken, [
 });
 
 // Create new order
-router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
+router.post('/', orderCreationLimiter, authenticateToken, requireRole(['clerk', 'admin']), [
   body('customerInfo.name').trim().isLength({ min: 1, max: 200 }).withMessage('Customer name is required'),
   body('customerInfo.email').optional().isEmail().withMessage('Invalid email format'),
   body('customerInfo.phone').optional().trim().isLength({ max: 20 }).withMessage('Phone must be less than 20 characters'),
@@ -151,9 +175,25 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
 
     const { items, taxRate = 0, notes } = req.body;
 
+    // Filter out any items with invalid inventoryId (defensive programming)
+    const validItems = (items || []).filter(item => {
+      if (!item || !item.inventoryId) return false;
+      return mongoose.Types.ObjectId.isValid(item.inventoryId);
+    });
+
+    if (validItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'No valid items provided. All items must have a valid inventory ID.'
+        }
+      });
+    }
+
     // Validate inventory items and get current prices
     const orderItems = [];
-    for (const item of items) {
+    for (const item of validItems) {
       const inventory = await Inventory.findOne({ 
         _id: item.inventoryId, 
         isDeleted: false, 
@@ -170,6 +210,12 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
         });
       }
 
+      // Truncate calculationBreakdown if it exceeds maxlength (200)
+      let calculationBreakdown = item.calculationBreakdown;
+      if (calculationBreakdown && calculationBreakdown.length > 200) {
+        calculationBreakdown = calculationBreakdown.substring(0, 197) + '...';
+      }
+
       orderItems.push({
         inventoryId: inventory._id,
         name: inventory.description,
@@ -177,7 +223,7 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
         unit: inventory.unit,
         unitPrice: item.unitPrice,
         totalPrice: item.unitPrice * item.quantity,
-        calculationBreakdown: item.calculationBreakdown
+        calculationBreakdown: calculationBreakdown || undefined // Only include if present
       });
     }
 
@@ -212,8 +258,53 @@ router.post('/', authenticateToken, requireRole(['clerk', 'admin']), [
       createdBy: req.user.userId
     };
 
+    // Validate the order data before saving
     const order = new Order(orderData);
-    await order.save();
+    
+    // Validate synchronously to catch errors early
+    const validationError = order.validateSync();
+    if (validationError) {
+      console.error('Mongoose validation error:', JSON.stringify(validationError.errors, null, 2));
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Order validation failed',
+          details: Object.keys(validationError.errors || {}).map(key => ({
+            field: key,
+            message: validationError.errors[key].message,
+            value: validationError.errors[key].value
+          }))
+        }
+      });
+    }
+    
+    try {
+      await order.save();
+    } catch (saveError) {
+      console.error('Order save error:', {
+        name: saveError.name,
+        code: saveError.code,
+        message: saveError.message,
+        errInfo: saveError.errInfo,
+        orderData: {
+          invoiceNumber: orderData.invoiceNumber,
+          itemCount: orderData.items.length,
+          items: orderData.items.map(item => ({
+            inventoryId: item.inventoryId?.toString(),
+            name: item.name,
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: item.unitPrice,
+            totalPrice: item.totalPrice
+          })),
+          subtotal: orderData.subtotal,
+          taxAmount: orderData.taxAmount,
+          total: orderData.total
+        }
+      });
+      throw saveError;
+    }
 
     // Update inventory stock
     for (const item of orderItems) {
@@ -365,7 +456,7 @@ router.delete('/:id', authenticateToken, requireRole(['clerk', 'admin']), [
 });
 
 // Generate PDF invoice
-router.get('/:id/pdf', authenticateToken, [
+router.get('/:id/pdf', pdfGenerationLimiter, authenticateToken, [
   param('id').isMongoId().withMessage('Invalid order ID'),
   query('template').optional().isString().withMessage('Template must be a string')
 ], async (req, res, next) => {
@@ -524,6 +615,355 @@ router.get('/pdf/templates', authenticateToken, (req, res) => {
         current: process.env.PDF_TEMPLATE || 'professional'
       }
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send signing email to customer
+router.post('/:id/send-signing-email', emailSendingLimiter, authenticateToken, requireRole(['clerk', 'admin']), [
+  param('id').isMongoId().withMessage('Invalid order ID'),
+  body('email').optional().isEmail().withMessage('Invalid email format')
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const order = await Order.findOne({ 
+      _id: req.params.id, 
+      isDeleted: false 
+    });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Order not found'
+        }
+      });
+    }
+
+    // Use provided email or order email
+    const email = req.body.email || order.customerInfo.email;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_EMAIL',
+          message: 'Email address is required. Please provide an email or ensure the order has a customer email.'
+        }
+      });
+    }
+
+    // Check if order is in a signable state
+    if (order.status === 'signed' || order.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ORDER_ALREADY_SIGNED',
+          message: 'This order has already been signed'
+        }
+      });
+    }
+
+    // Create or get existing valid token
+    let signingToken = await SigningToken.findOne({
+      orderId: order._id,
+      email: email.toLowerCase(),
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!signingToken) {
+      signingToken = await SigningToken.createForOrder(order._id, email.toLowerCase(), 30);
+    }
+
+    // Generate signing URL
+    // In production, FRONTEND_URL must be set (enforced by server.js startup check)
+    let baseUrl;
+    if (process.env.NODE_ENV === 'production') {
+      baseUrl = process.env.FRONTEND_URL || process.env.PUBLIC_URL;
+      if (!baseUrl) {
+        throw new Error('FRONTEND_URL environment variable is required in production');
+      }
+    } else {
+      // Development: fallback to localhost
+      baseUrl = process.env.FRONTEND_URL || process.env.PUBLIC_URL || 'http://localhost:3000';
+    }
+    const signingUrl = `${baseUrl}/sign/${signingToken.token}`;
+
+    // Send email
+    try {
+      await sendSigningEmail({
+        to: email,
+        orderNumber: order.invoiceNumber,
+        signingUrl,
+        customerName: order.customerInfo.name,
+        invoiceTotal: order.total
+      });
+
+      // Update order status to pending if it's draft
+      if (order.status === 'draft') {
+        order.status = 'pending';
+        await order.save();
+      }
+
+      // Set audit context
+      req.setAuditContext('Order', order._id, 'send_signing_email');
+      req.addAuditChange('status', order.status, 'pending');
+
+      res.json({
+        success: true,
+        message: 'Signing email sent successfully',
+        data: {
+          email,
+          tokenId: signingToken._id,
+          expiresAt: signingToken.expiresAt
+        }
+      });
+    } catch (emailError) {
+      console.error('Failed to send signing email:', emailError);
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'EMAIL_SEND_ERROR',
+          message: 'Failed to send signing email',
+          details: emailError.message
+        }
+      });
+    }
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Public endpoint: Get order by signing token (no auth required)
+router.get('/sign/:token', signingLimiter, [
+  param('token').isLength({ min: 64, max: 64 }).withMessage('Invalid token format')
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid token',
+          details: errors.array()
+        }
+      });
+    }
+
+    const signingToken = await SigningToken.findOne({ token: req.params.token })
+      .populate('orderId');
+
+    if (!signingToken) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'TOKEN_NOT_FOUND',
+          message: 'Invalid or expired signing link'
+        }
+      });
+    }
+
+    if (!signingToken.isValid()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TOKEN_INVALID',
+          message: signingToken.isUsed ? 'This signing link has already been used' : 'This signing link has expired'
+        }
+      });
+    }
+
+    const order = signingToken.orderId;
+    if (order.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'ORDER_NOT_FOUND',
+          message: 'Order not found'
+        }
+      });
+    }
+
+    // Capture device information
+    const deviceInfo = {
+      ipAddress: req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for']?.split(',')[0] || 'unknown',
+      userAgent: req.headers['user-agent'] || 'unknown',
+      platform: req.headers['sec-ch-ua-platform'] || 'unknown',
+      language: req.headers['accept-language'] || 'unknown',
+      timezone: req.headers['timezone'] || 'unknown',
+      screenResolution: req.headers['screen-resolution'] || 'unknown',
+      timestamp: new Date()
+    };
+
+    // Update token with device info (but don't mark as used yet)
+    if (!signingToken.deviceInfo || !signingToken.deviceInfo.ipAddress) {
+      signingToken.deviceInfo = deviceInfo;
+      await signingToken.save();
+    }
+
+    // Populate order details
+    await order.populate('createdBy', 'username');
+    await order.populate('items.inventoryId', 'name sku price');
+
+    res.json({
+      success: true,
+      data: {
+        order,
+        token: {
+          email: signingToken.email,
+          expiresAt: signingToken.expiresAt
+        }
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Public endpoint: Accept/sign order via token (no auth required)
+router.post('/sign/:token/accept', signingLimiter, [
+  param('token').isLength({ min: 64, max: 64 }).withMessage('Invalid token format'),
+  body('signedBy').trim().isLength({ min: 1, max: 200 }).withMessage('Signature name is required'),
+  body('consentAcknowledged').custom((value) => {
+    // Accept both string 'true' and boolean true
+    return value === true || value === 'true';
+  }).withMessage('Consent must be acknowledged')
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const signingToken = await SigningToken.findOne({ token: req.params.token })
+      .populate('orderId');
+
+    if (!signingToken) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'TOKEN_NOT_FOUND',
+          message: 'Invalid or expired signing link'
+        }
+      });
+    }
+
+    if (!signingToken.isValid()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TOKEN_INVALID',
+          message: signingToken.isUsed ? 'This signing link has already been used' : 'This signing link has expired'
+        }
+      });
+    }
+
+    const order = signingToken.orderId;
+    if (order.isDeleted) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'ORDER_NOT_FOUND',
+          message: 'Order not found'
+        }
+      });
+    }
+
+    if (order.status === 'signed' || order.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ORDER_ALREADY_SIGNED',
+          message: 'This order has already been signed'
+        }
+      });
+    }
+
+    // Generate document hash for integrity verification
+    const documentData = JSON.stringify({
+      invoiceNumber: order.invoiceNumber,
+      customerInfo: order.customerInfo,
+      items: order.items,
+      subtotal: order.subtotal,
+      taxAmount: order.taxAmount,
+      total: order.total,
+      createdAt: order.createdAt
+    });
+    const documentHash = crypto.createHash('sha256').update(documentData).digest('hex');
+
+    // Capture signature information
+    const ipAddress = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for']?.split(',')[0] || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    const signatureData = {
+      signedBy: req.body.signedBy.trim(),
+      ipAddress,
+      userAgent,
+      consentAcknowledged: true,
+      documentHash
+    };
+
+    // Mark token as used
+    await signingToken.markAsUsed(signatureData);
+
+    // Update order with signature
+    order.status = 'signed';
+    order.signedAt = new Date();
+    order.signedBy = signatureData.signedBy;
+    order.signatureMetadata = {
+      ipAddress,
+      userAgent,
+      platform: req.headers['sec-ch-ua-platform'] || 'unknown',
+      language: req.headers['accept-language'] || 'unknown',
+      timezone: req.headers['timezone'] || 'unknown',
+      screenResolution: req.headers['screen-resolution'] || 'unknown',
+      consentAcknowledged: true,
+      documentHash,
+      signingMethod: 'email_link',
+      tokenUsed: signingToken._id
+    };
+    await order.save();
+
+    // Populate order details for response
+    await order.populate('createdBy', 'username');
+    await order.populate('items.inventoryId', 'name sku price');
+
+    res.json({
+      success: true,
+      message: 'Order signed successfully',
+      data: {
+        order,
+        signature: {
+          signedAt: order.signedAt,
+          signedBy: order.signedBy,
+          documentHash: order.signatureMetadata.documentHash
+        }
+      }
+    });
+
   } catch (error) {
     next(error);
   }

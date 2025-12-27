@@ -17,8 +17,20 @@ const authenticateToken = async (req, res, next) => {
       });
     }
 
+    // Verify JWT_SECRET is set
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET environment variable is not set');
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'SERVER_ERROR',
+          message: 'Server configuration error'
+        }
+      });
+    }
+
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     // Check if user still exists and is active
     const user = await User.findById(decoded.userId).select('_id username role isActive');

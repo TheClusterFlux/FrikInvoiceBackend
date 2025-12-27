@@ -55,6 +55,11 @@ router.post('/login', loginLimiter, [
     user.lastLogin = new Date();
     await user.save();
 
+    // Verify JWT_SECRET is set
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET environment variable is required');
+    }
+
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -62,7 +67,7 @@ router.post('/login', loginLimiter, [
         username: user.username, 
         role: user.role 
       },
-      process.env.JWT_SECRET || 'fallback-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
@@ -88,6 +93,11 @@ router.post('/login', loginLimiter, [
 // Refresh token endpoint
 router.post('/refresh', authenticateToken, async (req, res, next) => {
   try {
+    // Verify JWT_SECRET is set
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET environment variable is required');
+    }
+
     // Generate new token
     const token = jwt.sign(
       { 
@@ -95,7 +105,7 @@ router.post('/refresh', authenticateToken, async (req, res, next) => {
         username: req.user.username, 
         role: req.user.role 
       },
-      process.env.JWT_SECRET || 'fallback-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 

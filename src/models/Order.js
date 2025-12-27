@@ -153,6 +153,26 @@ const orderSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: 200
+  },
+  // Enhanced signature metadata for legal compliance
+  signatureMetadata: {
+    ipAddress: String,
+    userAgent: String,
+    platform: String,
+    language: String,
+    timezone: String,
+    screenResolution: String,
+    consentAcknowledged: Boolean,
+    documentHash: String, // Hash of order data at time of signing
+    signingMethod: {
+      type: String,
+      enum: ['email_link', 'manual', 'api'],
+      default: 'email_link'
+    },
+    tokenUsed: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SigningToken'
+    }
   }
 }, {
   timestamps: true
@@ -162,31 +182,51 @@ const orderSchema = new mongoose.Schema({
 orderSchema.index({ invoiceNumber: 1 });
 orderSchema.index({ isDeleted: 1, status: 1 });
 orderSchema.index({ createdAt: -1 });
+orderSchema.index({ 'customerInfo.email': 1 });
+orderSchema.index({ createdBy: 1 });
+orderSchema.index({ 'customerInfo.name': 'text', invoiceNumber: 'text' }); // Text index for search
 
 // Calculate totals before saving
 orderSchema.pre('save', function(next) {
-  if (this.items && this.items.length > 0) {
-    // Use the configured tax calculation method
-    const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
-    
-    const taxMethod = getTaxCalculationMethod();
-    const items = this.items.map(item => ({
-      unitPrice: item.unitPrice,
-      quantity: item.quantity,
-      taxRate: this.taxRate || 0
-    }));
-    
-    const taxCalculation = calculateTaxForItems(items, taxMethod);
-    
-    this.subtotal = taxCalculation.subtotal;
-    this.taxAmount = taxCalculation.taxAmount;
-    this.total = taxCalculation.total;
-    
-    // Calculate total quantities
-    const { calculateTotalQuantity } = require('../utils/unitConversion');
-    this.totalQuantities = calculateTotalQuantity(this.items);
+  try {
+    if (this.items && this.items.length > 0) {
+      // Validate that all items have required fields
+      for (const item of this.items) {
+        if (!item.inventoryId || !item.name || !item.quantity || !item.unit || item.unitPrice === undefined || item.totalPrice === undefined) {
+          return next(new Error(`Invalid item: missing required fields. Item: ${JSON.stringify(item)}`));
+        }
+      }
+
+      // Use the configured tax calculation method
+      const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
+      
+      const taxMethod = getTaxCalculationMethod();
+      const items = this.items.map(item => ({
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        taxRate: this.taxRate || 0
+      }));
+      
+      const taxCalculation = calculateTaxForItems(items, taxMethod);
+      
+      this.subtotal = taxCalculation.subtotal;
+      this.taxAmount = taxCalculation.taxAmount;
+      this.total = taxCalculation.total;
+      
+      // Calculate total quantities - wrap in try-catch in case it fails
+      try {
+        const { calculateTotalQuantity } = require('../utils/unitConversion');
+        this.totalQuantities = calculateTotalQuantity(this.items);
+      } catch (err) {
+        // If totalQuantities calculation fails, set to empty map
+        console.warn('Failed to calculate totalQuantities:', err.message);
+        this.totalQuantities = new Map();
+      }
+    }
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 });
 
 // Soft delete method

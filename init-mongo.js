@@ -134,15 +134,10 @@ db.orders.createIndex({ createdAt: -1 });
 db.auditlogs.createIndex({ userId: 1 });
 db.auditlogs.createIndex({ timestamp: -1 });
 
-// Insert a default admin user (password: admin123)
-db.users.insertOne({
-  username: 'admin',
-  email: 'admin@frikinvoice.local',
-  password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // bcrypt hash for 'admin123'
-  role: 'admin',
-  createdAt: new Date(),
-  lastLogin: null
-});
+// Note: Admin user creation is handled by create-admin-user.js script
+// Run: npm run create-admin
+// This is because MongoDB shell cannot use bcryptjs to properly hash passwords
+// The User model requires passwords to be hashed with bcrypt (12 salt rounds)
 
 // Insert some sample inventory items
 db.inventory.insertMany([
@@ -196,5 +191,6 @@ db.clients.insertOne({
 });
 
 print('FrikInvoice database initialized successfully!');
-print('Default admin user created: username=admin, password=admin123');
+print('To create admin user, run: npm run create-admin');
+print('Default credentials: username=admin, password=admin123');
 print('Sample inventory items and client added.');
