@@ -5,7 +5,8 @@ const TEMPLATES = {
   'professional': require('./templates/professionalTemplate'),
   'compact': require('./templates/compactTemplate'),
   'bilingual': require('./templates/bilingualTemplate'),
-  'ultra-compact': require('./templates/ultraCompactTemplate')
+  'ultra-compact': require('./templates/ultraCompactTemplate'),
+  'signing-screen': require('./templates/signingScreenTemplate')
 };
 
 // Current active template (can be changed via environment variable)
@@ -75,9 +76,9 @@ const generatePDF = async (order, templateName = null) => {
 
 // Utility functions for templates
 const formatCurrency = (amount) => {
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat('en-ZA', {
     style: 'currency',
-    currency: 'USD'
+    currency: 'ZAR'
   }).format(amount);
 };
 

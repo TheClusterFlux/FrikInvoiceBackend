@@ -16,7 +16,7 @@ const {
 } = require('../middleware/rateLimiter');
 const { generatePDF } = require('../services/pdfService');
 const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
-const { sendSigningEmail } = require('../services/emailService');
+const { sendSigningEmail, sendInvoicePDF } = require('../services/emailService');
 const crypto = require('crypto');
 
 const router = express.Router();
@@ -963,6 +963,83 @@ router.post('/sign/:token/accept', signingLimiter, [
         }
       }
     });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Send invoice PDF via email (public endpoint - for signed invoices)
+router.post('/:id/send-pdf-email', [
+  param('id').isMongoId().withMessage('Invalid order ID'),
+  body('email').optional().isEmail().withMessage('Invalid email address')
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const order = await Order.findById(req.params.id);
+    
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'ORDER_NOT_FOUND',
+          message: 'Order not found'
+        }
+      });
+    }
+
+    // Use provided email or order email
+    const email = req.body.email || order.customerInfo.email;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'EMAIL_REQUIRED',
+          message: 'Email address is required. Please provide an email or ensure the order has a customer email.'
+        }
+      });
+    }
+
+    // Generate and send PDF
+    try {
+      await sendInvoicePDF({
+        to: email,
+        orderNumber: order.invoiceNumber,
+        customerName: order.customerInfo.name,
+        orderId: order._id,
+        templateName: 'signing-screen'
+      });
+
+      res.json({
+        success: true,
+        message: 'Invoice PDF sent successfully',
+        data: {
+          email
+        }
+      });
+    } catch (emailError) {
+      console.error('Failed to send invoice PDF email:', emailError);
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'EMAIL_SEND_ERROR',
+          message: 'Failed to send invoice PDF email',
+          details: emailError.message
+        }
+      });
+    }
 
   } catch (error) {
     next(error);
