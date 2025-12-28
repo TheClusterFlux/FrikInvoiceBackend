@@ -58,6 +58,11 @@ const orderSchema = new mongoose.Schema({
       ref: 'Inventory',
       required: true
     },
+    code: {
+      type: String,
+      trim: true,
+      maxlength: 50
+    },
     name: {
       type: String,
       required: true

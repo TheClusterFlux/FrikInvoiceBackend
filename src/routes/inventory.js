@@ -25,7 +25,7 @@ const upload = multer({
 });
 
 // Get all inventory items
-router.get('/', [
+router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
   query('group').optional().trim().isLength({ max: 100 }),
@@ -110,7 +110,7 @@ router.get('/', [
 });
 
 // Get specific inventory item
-router.get('/:id', [
+router.get('/:id', authenticateToken, [
   param('id').isMongoId().withMessage('Invalid inventory ID')
 ], async (req, res, next) => {
   try {

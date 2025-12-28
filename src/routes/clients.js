@@ -7,7 +7,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // Get all active clients
-router.get('/', [
+router.get('/', authenticateToken, [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
   query('search').optional().trim().isLength({ max: 200 })
@@ -67,7 +67,7 @@ router.get('/', [
 });
 
 // Get specific client
-router.get('/:id', [
+router.get('/:id', authenticateToken, [
   param('id').isMongoId().withMessage('Invalid client ID')
 ], async (req, res, next) => {
   try {

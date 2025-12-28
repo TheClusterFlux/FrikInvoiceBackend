@@ -14,6 +14,12 @@ const {
   emailSendingLimiter, 
   signingLimiter 
 } = require('../middleware/rateLimiter');
+const { 
+  invalidTokenLimiter, 
+  checkTokenFishingBlock, 
+  getClientIp,
+  trackFailedAttempt
+} = require('../middleware/tokenSecurity');
 const { generatePDF } = require('../services/pdfService');
 const { calculateTaxForItems, getTaxCalculationMethod } = require('../utils/taxCalculation');
 const { sendSigningEmail, sendInvoicePDF } = require('../services/emailService');
@@ -218,6 +224,7 @@ router.post('/', orderCreationLimiter, authenticateToken, requireRole(['clerk', 
 
       orderItems.push({
         inventoryId: inventory._id,
+        code: inventory.code, // Store inventory code for static invoice data
         name: inventory.description,
         quantity: item.quantity,
         unit: inventory.unit,
@@ -749,12 +756,24 @@ router.post('/:id/send-signing-email', emailSendingLimiter, authenticateToken, r
 });
 
 // Public endpoint: Get order by signing token (no auth required)
-router.get('/sign/:token', signingLimiter, [
+// Apply security checks: block fishing attempts, rate limit ONLY invalid tokens
+router.get('/sign/:token', 
+  checkTokenFishingBlock, // Check if IP is blocked for fishing
+  invalidTokenLimiter, // Rate limit ONLY invalid tokens (not valid ones)
+  [
   param('token').isLength({ min: 64, max: 64 }).withMessage('Invalid token format')
 ], async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      // Track invalid token format attempts (fishing)
+      const ip = getClientIp(req);
+      const failedData = await trackFailedAttempt(ip);
+      
+      if (failedData.count >= 3) {
+        console.warn(`[SECURITY] Token format fishing detected from IP ${ip}. ${failedData.count} failed attempts.`);
+      }
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -769,6 +788,15 @@ router.get('/sign/:token', signingLimiter, [
       .populate('orderId');
 
     if (!signingToken) {
+      // Track failed token lookup (fishing attempt)
+      const ip = getClientIp(req);
+      const failedData = await trackFailedAttempt(ip);
+      
+      // Log suspicious activity if multiple failures
+      if (failedData.count >= 3) {
+        console.warn(`[SECURITY] Token fishing detected from IP ${ip}. ${failedData.count} failed attempts. Token: ${req.params.token.substring(0, 8)}...`);
+      }
+      
       return res.status(404).json({
         success: false,
         error: {
@@ -837,7 +865,9 @@ router.get('/sign/:token', signingLimiter, [
 });
 
 // Public endpoint: Accept/sign order via token (no auth required)
-router.post('/sign/:token/accept', signingLimiter, [
+router.post('/sign/:token/accept', 
+  checkTokenFishingBlock, // Check if IP is blocked for fishing
+  [
   param('token').isLength({ min: 64, max: 64 }).withMessage('Invalid token format'),
   body('signedBy').trim().isLength({ min: 1, max: 200 }).withMessage('Signature name is required'),
   body('consentAcknowledged').custom((value) => {
@@ -848,6 +878,14 @@ router.post('/sign/:token/accept', signingLimiter, [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      // Track invalid token format attempts (fishing)
+      const ip = getClientIp(req);
+      const failedData = await trackFailedAttempt(ip);
+      
+      if (failedData.count >= 3) {
+        console.warn(`[SECURITY] Token format fishing detected from IP ${ip} on accept endpoint. ${failedData.count} failed attempts.`);
+      }
+      
       return res.status(400).json({
         success: false,
         error: {
@@ -862,6 +900,14 @@ router.post('/sign/:token/accept', signingLimiter, [
       .populate('orderId');
 
     if (!signingToken) {
+      // Track failed token lookup (fishing attempt)
+      const ip = getClientIp(req);
+      const failedData = await trackFailedAttempt(ip);
+      
+      if (failedData.count >= 3) {
+        console.warn(`[SECURITY] Token fishing detected from IP ${ip} on accept endpoint. ${failedData.count} failed attempts. Token: ${req.params.token.substring(0, 8)}...`);
+      }
+      
       return res.status(404).json({
         success: false,
         error: {
@@ -872,6 +918,14 @@ router.post('/sign/:token/accept', signingLimiter, [
     }
 
     if (!signingToken.isValid()) {
+      // Track invalid token attempts (expired/used)
+      const ip = getClientIp(req);
+      const failedData = await trackFailedAttempt(ip);
+      
+      if (failedData.count >= 3) {
+        console.warn(`[SECURITY] Invalid token access attempt from IP ${ip}. ${failedData.count} failed attempts. Token: ${req.params.token.substring(0, 8)}...`);
+      }
+      
       return res.status(400).json({
         success: false,
         error: {

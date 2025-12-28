@@ -138,9 +138,13 @@ mongoose.connect(mongoUri, {
   useUnifiedTopology: true,
   dbName: 'frikinvoice'
 })
-.then(() => {
+.then(async () => {
   console.log('Connected to MongoDB');
   console.log(`Database: frikinvoice`);
+  
+  // Initialize security blocklist after MongoDB connection
+  const { initializeBlocklist } = require('./middleware/tokenSecurity');
+  await initializeBlocklist();
   
   // Start server
   app.listen(PORT, () => {

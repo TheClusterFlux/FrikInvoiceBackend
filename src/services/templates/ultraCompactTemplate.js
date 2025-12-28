@@ -391,7 +391,7 @@ const generateHTML = (order) => {
             <tbody>
               ${order.items.map(item => `
                 <tr>
-                  <td class="product-code-col">${item.inventoryId?.sku || 'N/A'}</td>
+                  <td class="product-code-col">${item.code || 'N/A'}</td>
                   <td class="qty-col">${item.quantity}</td>
                   <td class="packing-col"></td>
                   <td class="description-col">${item.name}</td>
