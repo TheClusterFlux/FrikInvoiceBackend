@@ -27,14 +27,25 @@ router.post('/login', loginLimiter, [
 
     const { username, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ username, isActive: true });
+    // Find user (check if exists first, then check if active)
+    const user = await User.findOne({ username });
     if (!user) {
       return res.status(401).json({
         success: false,
         error: {
           code: 'AUTH_INVALID',
           message: 'Invalid credentials'
+        }
+      });
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_INACTIVE',
+          message: 'Your account has been deactivated. Please contact an administrator.'
         }
       });
     }
