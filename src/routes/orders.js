@@ -200,18 +200,31 @@ router.post('/', orderCreationLimiter, authenticateToken, requireRole(['clerk', 
     // Validate inventory items and get current prices
     const orderItems = [];
     for (const item of validItems) {
-      const inventory = await Inventory.findOne({ 
+      // First try to find the item (without isActive filter - we don't care if it's active or not)
+      let inventory = await Inventory.findOne({ 
         _id: item.inventoryId, 
-        isDeleted: false, 
-        isActive: true 
+        isDeleted: false
       });
 
       if (!inventory) {
+        // Try to find the item even if deleted to get its code for a better error message
+        const deletedInventory = await Inventory.findOne({ _id: item.inventoryId });
+        if (deletedInventory) {
+          return res.status(404).json({
+            success: false,
+            error: {
+              code: 'NOT_FOUND',
+              message: `Inventory item "${deletedInventory.code} - ${deletedInventory.description}" was deleted and cannot be used in orders`
+            }
+          });
+        }
+        
+        // Item doesn't exist at all - provide a helpful error message
         return res.status(404).json({
           success: false,
           error: {
             code: 'NOT_FOUND',
-            message: `Inventory item not found: ${item.inventoryId}`
+            message: `Inventory item with ID "${item.inventoryId}" not found. Please select a valid item from the inventory.`
           }
         });
       }
