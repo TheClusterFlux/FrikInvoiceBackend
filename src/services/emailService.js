@@ -31,7 +31,8 @@ async function sendEmail({ to, subject, body, html = false, fromEmail = null, re
       emailApiUrl: EMAIL_API_URL,
       hasBody: !!body,
       html,
-      hasAttachments: !!attachments
+      hasAttachments: !!attachments,
+      attachmentCount: attachments ? attachments.length : 0
     });
 
     const payload = {
@@ -46,6 +47,17 @@ async function sendEmail({ to, subject, body, html = false, fromEmail = null, re
     // Add attachments if provided
     if (attachments && Array.isArray(attachments)) {
       payload.attachments = attachments;
+      console.log('Email payload includes attachments:', {
+        attachmentCount: attachments.length,
+        attachmentDetails: attachments.map(att => ({
+          filename: att.filename,
+          type: att.type,
+          hasContent: !!att.content,
+          contentLength: att.content ? att.content.length : 0,
+          encoding: att.encoding,
+          disposition: att.disposition
+        }))
+      });
     }
 
     const response = await axios.post(`${EMAIL_API_URL}/send`, payload, {
@@ -194,10 +206,32 @@ async function sendInvoicePDF({ to, orderNumber, customerName, orderId, template
       throw new Error('Order not found');
     }
     
+    console.log('Generating PDF for invoice email:', {
+      orderId,
+      orderNumber,
+      templateName,
+      customerName
+    });
+    
     const pdfBuffer = await generatePDF(order, templateName);
+    
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      throw new Error('PDF generation returned empty buffer');
+    }
+    
+    console.log('PDF generated successfully:', {
+      orderId,
+      orderNumber,
+      pdfSize: pdfBuffer.length,
+      templateName
+    });
     
     // Convert PDF buffer to base64 for email attachment
     const pdfBase64 = pdfBuffer.toString('base64');
+    
+    if (!pdfBase64 || pdfBase64.length === 0) {
+      throw new Error('PDF base64 conversion failed');
+    }
     
     const subject = `Invoice ${orderNumber} - Copy`;
     
@@ -257,6 +291,24 @@ This is an automated message from TheClusterFlux Invoice System.
 Please do not reply to this email.
     `;
     
+    // Prepare attachment
+    const attachment = {
+      filename: `invoice-${orderNumber}.pdf`,
+      content: pdfBase64,
+      encoding: 'base64',
+      type: 'application/pdf',
+      disposition: 'attachment'
+    };
+    
+    console.log('Sending email with PDF attachment:', {
+      to,
+      orderNumber,
+      subject,
+      attachmentFilename: attachment.filename,
+      attachmentSize: pdfBase64.length,
+      attachmentType: attachment.type
+    });
+    
     // Send email with PDF attachment
     await sendEmail({
       to,
@@ -265,14 +317,7 @@ Please do not reply to this email.
       html: true,
       fromEmail: process.env.EMAIL_FROM || 'noreply@theclusterflux.com',
       replyTo: process.env.EMAIL_REPLY_TO || null,
-      attachments: [
-        {
-          filename: `invoice-${orderNumber}.pdf`,
-          content: pdfBase64,
-          type: 'application/pdf',
-          disposition: 'attachment'
-        }
-      ]
+      attachments: [attachment]
     });
     
     // Get response from sendEmail (it returns success info)

@@ -11,3 +11,5 @@ echo.
 kubectl port-forward svc/email-api-service 8081:8080 -n default
 
 
+
+
